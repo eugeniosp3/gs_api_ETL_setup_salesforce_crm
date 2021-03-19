@@ -1,6 +1,15 @@
 import pandas as pd
+import requests
+from random import randint
+import time
+import random
 import ast
 import numpy as np
+start = time.time()
+import re
+
+
+df = pd.read_csv('RANTHESE.csv')
 
 def process_leader_name(letter, x):
     """ parses the data for:
@@ -13,7 +22,7 @@ def process_leader_name(letter, x):
                    'RPh', 'RPH', 'BSN', 'RN',
                    'MSN', 'MS', 'MBA', 'MA', 'MFA', 'LPN', 'CRNA', 'CPhT', 'CPHT', 'DPT', 'OT', 'SLP', 'DVM', 'M.D.',
                    'Ph.D', 'CEO', 'FACS', 'FAAN', 'ESQ',
-                   'MPH', 'C.G.M.A', 'LLP', 'CPA', 'EdD', 'DD', 'Md', 'Rn', 'Phd', 'Jd']
+                   'MPH', 'C.G.M.A', 'LLP', 'CPA', 'EdD', 'DD', 'Md', 'Rn', 'Phd', 'Jd', 'IOM', 'CAE']
     salutations = ['Mr', 'MR', 'Ms', 'Mrs', 'Miss', 'Prof', 'Dr', 'DR', 'Senator', 'SENATOR', 'MISS', 'MRS', 'MS',
                    'PROF', 'CONGRESSMAN', 'Congressman',
                    'Congresswoman', 'CONGRESSWOMAN', 'Professor', 'PROFESSOR']
@@ -21,15 +30,15 @@ def process_leader_name(letter, x):
         if letter == 'c':
             credentialing = []
             for cred in credentials:
-                if cred in x:
+                if cred in x and cred not in credentialing:
                     credentialing.append(cred)
-            credentialing = str(credentialing).replace('[', '').replace(']', '').replace('.', '').capitalize()
+            credentialing = str(credentialing).upper().replace('[', '').replace(']', '').replace('.', '')
 
             return credentialing
         if letter == 's':
             for sal in salutations:
                 if sal in x:
-                    return sal
+                    return sal.capitalize()
 
         # calls name parser library
         r = HumanName(x)
@@ -56,18 +65,18 @@ def process_leader_name(letter, x):
 
 def leadership_ids_columns(seed_df, receiving_df):
     # handles creation of columns related to leadership if fields are available in the data
-    main_df['LASTNAME'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('l', x)).replace(
+    receiving_df['LASTNAME'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('l', x)).replace(
+        'RMInputNeeded', '')
+    receiving_df['FIRSTNAME'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('f', x)).replace(
+        'RMInputNeeded', '')
+    receiving_df['SALUTATION'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('s', x)).replace(
         np.nan, '')
-    main_df['FIRSTNAME'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('f', x)).replace(
-        np.nan, '')
-    main_df['SALUTATION'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('s', x)).replace(
-        np.nan, '')
-    main_df['MIDDLELETTER'] = seed_df['data.operations.leader_name'].apply(
+    receiving_df['MIDDLELETTER'] = seed_df['data.operations.leader_name'].apply(
         lambda x: process_leader_name('m', x)).replace(np.nan, '')
-    main_df['SUFFIX'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('su', x)).replace(
+    receiving_df['SUFFIX'] = seed_df['data.operations.leader_name'].apply(lambda x: process_leader_name('su', x)).replace(
         np.nan, '')
-    main_df['CREDENTIALS'] = seed_df['data.operations.leader_name'].apply(
-        lambda x: process_leader_name('c', x)).replace(np.nan, '')
+    receiving_df['CREDENTIALS'] = seed_df['data.operations.leader_name'].str.upper().apply(
+        lambda x: process_leader_name('c', x)).replace(np.nan, '').str.replace("'", '').str.replace('.', '')
 
     def apply_roles(x):
         # adds the job title for the leadership
@@ -77,8 +86,8 @@ def leadership_ids_columns(seed_df, receiving_df):
             if role in x:
                 return role
 
-    main_df['ROLE'] = seed_df['data.operations.leader_profile'].apply(lambda x: apply_roles(x)).replace(np.nan,
-                                                                                                            'Unavailable')
+    receiving_df['ROLE'] = seed_df['data.operations.leader_profile'].apply(lambda x: apply_roles(x)).replace(np.nan,
+                                                                                                        'RMInputNeeded')
 
 
 def create_ext_vod(seed_df):
@@ -104,81 +113,77 @@ def get_dictionary_phone(x):
 
 
 def main_df_factory(df):
+
     # creates the main dataframe where all data will be stored and prepared for breaking up into individual files
     main_df = pd.DataFrame()
-    df = df[df['Da_code'] == 200]
-    main_df['Da_EIN'] = df['data.summary.ein']
-    main_df['Da_EIN2'] = df['data.summary.ein'].replace(np.nan, '')
-    main_df['Da_CHARITYNAME'] = df['data.summary.organization_name'].replace(np.nan, '')
-    main_df['Da_MISSION'] = df['data.summary.mission'].replace(np.nan, '')
-    main_df['Da_WEBSITEURL'] = df['data.summary.website_url'].replace(np.nan, '')
-    main_df['Da_GENERALEMAIL'] = df['data.operations.organization_email'].replace(np.nan, '')
-    main_df['Da_IRSCLASSIFICATION'] = df['data.summary.ntee_code'].replace(np.nan, '')
-    main_df['Da_IRSLATEST990'] = df['data.financials.most_recent_year_financials.fiscal_year'].replace(np.nan, '')
-    main_df['Da_IRSSUBSECTION'] = df['data.summary.subsection_description'].replace(np.nan, '')
-    main_df['Da_TOTALREVENUE'] = df['data.financials.most_recent_year_financials.total_revenue'].replace(np.nan, '')
+    df = df[df['code'] == 200]
+    main_df['EIN'] = df['data.summary.ein']
+    main_df['EIN2'] = df['data.summary.ein'].replace(np.nan, '')
+    main_df['CHARITYNAME'] = df['data.summary.organization_name'].replace(np.nan, '').str.title()
+    main_df['MISSION'] = df['data.summary.mission'].replace(np.nan, '').str.capitalize().apply(lambda x: re.sub(r'[^\x00-\x7f]',r'', x))
+    main_df['WEBSITEURL'] = df['data.summary.website_url'].replace(np.nan, '').str.lower()
+    main_df['GENERALEMAIL'] = df['data.operations.organization_email'].replace(np.nan, '')
+    main_df['IRSCLASSIFICATION'] = df['data.summary.ntee_code'].replace(np.nan, '').apply(lambda x: re.sub(r'[^\x00-\x7f]',r'', x))
+    main_df['IRSLATEST990'] = df['data.financials.most_recent_year_financials.fiscal_year'].replace(np.nan, '')
+    main_df['IRSSUBSECTION'] = '501(c)(3)'
+    main_df['TOTALREVENUE'] = df['data.financials.most_recent_year_financials.total_revenue'].replace(np.nan, '')
     leadership_ids_columns(df, main_df)
-    main_df['Da_EXTERNALVODID'] = create_ext_vod(main_df)
-    main_df['Da_MAILINGCITY'] = df['data.summary.city']
-    main_df['Da_MAILINGCOUNTRY'] = 'United States'
-    main_df['Da_ZIPCODE'] = df['data.summary.zip'].replace(np.nan, '').astype('str')
-    main_df['Da_STATE'] = df['data.summary.state'].replace(np.nan, '')
-    main_df['Da_STREETADDRESS'] = df['data.summary.address_line_1'].replace(np.nan, '')
-    main_df['Da_STREETADDRESSLINE2'] = df['data.summary.address_line_2'].replace(np.nan, '')
-    main_df['Da_EIN#'] = df['data.summary.ein'].replace(np.nan, '')
-    main_df['Da_EIN'] = df['data.summary.ein'].astype(str).str.replace('-', '')
-    main_df['Da_PHONENUMBER'] = df['data.summary.telephone_numbers'].apply(lambda x: get_dictionary_phone(x)).replace(
-        np.nan, 'Unavailable')
+    main_df['EXTERNALVODID'] = create_ext_vod(main_df)
+    main_df['MAILINGCITY'] = df['data.summary.city'].str.title().str.replace(', Dc', '').str.replace(', Il', '')
+    main_df['MAILINGCOUNTRY'] = 'United States'
+    main_df['ZIPCODE'] = df['data.summary.zip'].replace(np.nan, '').astype(str)
+    main_df['STATE'] = df['data.summary.state'].replace(np.nan, '')
+    main_df['STREETADDRESS'] = df['data.summary.address_line_1'].replace(np.nan, '')
+    main_df['STREETADDRESSLINE2'] = df['data.summary.address_line_2'].replace(np.nan, '')
+    main_df['EIN#'] = df['data.summary.ein'].replace(np.nan, '')
+    main_df['EIN'] = df['data.summary.ein'].astype(str).str.replace('-', '')
+    main_df['PHONENUMBER'] = df['data.summary.telephone_numbers'].apply(lambda x: get_dictionary_phone(x)).replace(
+        np.nan,
+        'RMInputNeeded')
+    return main_df
 
-def create_load_files():
+
+def create_load_files(feed_df):
     """ makes the csv files required for the load of data into platform"""
     organization_account = pd.DataFrame()
-    organization_account['Da_ext_ID_Vod_Da_'] = main_df['EIN']
-    organization_account['Da_Name_Da_'] = main_df['CHARITYNAME']
-    organization_account['Da_Mission_Da_'] = main_df['MISSION']
-    organization_account['Da_Website_Da_'] = main_df['WEBSITEURL']
-    organization_account['Da_Phone_Da_'] = main_df['PHONENUMBER']
-    organization_account['Da_Email_Da_'] = main_df['GENERALEMAIL']
-    organization_account['Da_Organization_Type_Da_'] = main_df['IRSCLASSIFICATION']
-    organization_account['Da_Latest990_Da_'] = main_df['IRSLATEST990']
-    organization_account['Da_KRM_Legal_Entity_Da_'] = main_df['IRSSUBSECTION']
-    organization_account['Da_Total_Revenue_000_Da_'] = main_df['TOTALREVENUE']
-    organization_account['Da_KRM_CHANGE_STATUS_Da_'] = ''
-    organization_account['Da_KRM_CHANGE_DATE_Da_'] = ''
-    organization_account.to_csv('Da_ORGANIZATION_ACCOUNT.csv')
+    organization_account['External_ID_Vod_c'] = feed_df['EIN']
+    organization_account['Name'] = feed_df['CHARITYNAME']
+    organization_account['Mission_c'] = feed_df['MISSION']
+    organization_account['Website'] = feed_df['WEBSITEURL']
+    organization_account['POL_KOL_Phone_C'] = feed_df['PHONENUMBER']
+    organization_account['POL_KOL_Email_C'] = feed_df['GENERALEMAIL']
+    organization_account['Organization_Type_c'] = feed_df['IRSCLASSIFICATION']
+    organization_account['Latest990_C'] = feed_df['IRSLATEST990']
+    organization_account['KRM_Legal_Entity_c'] = feed_df['IRSSUBSECTION']
+    organization_account['Total_Revenue_000_c'] = feed_df['TOTALREVENUE']
+    organization_account['KRM_CHANGE_STATUS_C'] = 'Published'
+    organization_account['KRM_CHANGE_DATE_C'] = '3/10/2020'
+    organization_account['RECORDTYPEID'] = '01203000000CijdAAC'
+    organization_account['LASTNAME'] = feed_df['LASTNAME']
+    organization_account['FIRSTNAME'] = feed_df['FIRSTNAME']
+    organization_account['SALUTATION'] = feed_df['SALUTATION']
+    organization_account['EXTERNAL_ID_VOD_C'] = feed_df['EXTERNALVODID']
+    organization_account['MIDDLE_VOD_C'] = feed_df['MIDDLELETTER']
+    organization_account['SUFFIX_VOD_C'] = ''
+    organization_account['KOL_CREDENTIALS_OLR_C'] = feed_df['CREDENTIALS']
+    organization_account['RECORDTYPEID'] = '01203000000CijdAAC'
+    organization_account['City_vod_c'] = feed_df['MAILINGCITY']
+    organization_account['Country_vod_c'] = feed_df['MAILINGCOUNTRY']
+    organization_account['Zip_vod_c'] = feed_df['ZIPCODE']
+    organization_account['State_vod_c'] = feed_df['STATE']
+    organization_account['Name'] = feed_df['STREETADDRESS']
+    organization_account['Address_line_2_vod_c'] = feed_df['STREETADDRESSLINE2']
+    organization_account['External_Id_Vod_c'] = 'EIN-' + feed_df['EIN'].astype(str)
+    organization_account['EIN'] = feed_df['EIN']
+    organization_account['Account_Vod_C'] = ''
+    organization_account['Leader_Name'] = feed_df['EXTERNALVODID']
+    organization_account['FROM_ACCOUNT_VOD_C'] = ''
+    organization_account['ROLE_VOD_C'] = feed_df['ROLE']
+    organization_account['EIN'] = feed_df['EIN']
+    organization_account['TO_ACCOUNT_VOD_C'] = ''
+    organization_account.to_csv('organization_account.csv', index=False)
 
-    organization_leadership_account = pd.DataFrame()
-    organization_leadership_account['Da_LastNAME'] = main_df['LASTNAME']
-    organization_leadership_account['Da_First_NAME'] = main_df['FIRSTNAME']
-    organization_leadership_account['Da_SALUTATION'] = main_df['SALUTATION']
-    organization_leadership_account['Da_EXTERNAL_ID_Da_'] = main_df['EXTERNALVODID']
-    organization_leadership_account['Da_MIDDLE_Da_'] = main_df['MIDDLELETTER']
-    organization_leadership_account['Da_SUFFIX_Da_'] = main_df['SUFFIX']
-    organization_leadership_account['Da_KOL_CREDENTIALS_Da_'] = main_df['CREDENTIALS']
-    organization_leadership_account.to_csv('Da_ORGANIZATION_LEADERSHIP_ACCOUNT.csv')
-
-    address = pd.DataFrame()
-    address['Da_City_Da_'] = main_df['MAILINGCITY']
-    address['Da_Country_Da_'] = main_df['MAILINGCOUNTRY']
-    address['Da_Zip_Da_'] = main_df['ZIPCODE']
-    address['Da_State_Da_'] = main_df['STATE']
-    address['Da_Name'] = main_df['STREETADDRESS']
-    address['Da_Address_line_2_Da_'] = main_df['STREETADDRESSLINE2']
-    address['Da_External_Id_Da_'] = main_df['EIN2']
-    address['Da_EIN'] = main_df['EIN']
-    address['Da_Account_Da_'] = ''
-    address.to_csv('Da_ADDRESS.csv')
-
-    affiliation = pd.DataFrame()
-    affiliation['Da_Leader_Name'] = main_df['EXTERNALVODID']
-    affiliation['Da_FROM_ACCOUNT_Da_'] = ''
-    affiliation['Da_ROLE_Da_'] = main_df['ROLE']
-    affiliation['Da_EIN'] = main_df['EIN']
-    affiliation['Da_TO_ACCOUNT_Da_'] = ''
-    affiliation.to_csv('Da_AFFILIATION.csv')
-
-
-
-
-
-
+process_df = main_df_factory(df)
+write_em = create_load_files(process_df)
+end = time.time()
+print('Run Time: ', end-start)
